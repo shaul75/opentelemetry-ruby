@@ -185,23 +185,24 @@ module OpenTelemetry
 
           def export_batch(batch, timeout: @exporter_timeout_seconds)
             result_code = @export_mutex.synchronize { @exporter.export(batch, timeout: timeout) }
-            report_result(result_code, batch)
+            report_success(batch.size)
             result_code
           rescue StandardError => e
-            report_result(FAILURE, batch)
+            report_error(e, batch.size)
             @metrics_reporter.add_to_counter('otel.bsp.error', labels: { 'reason' => e.class.to_s })
             FAILURE
           end
 
-          def report_result(result_code, batch)
-            if result_code == SUCCESS
-              @metrics_reporter.add_to_counter('otel.bsp.export.success')
-              @metrics_reporter.add_to_counter('otel.bsp.exported_spans', increment: batch.size)
-            else
-              OpenTelemetry.handle_error(exception: ExportError.new("Unable to export #{batch.size} spans"))
-              @metrics_reporter.add_to_counter('otel.bsp.export.failure')
-              report_dropped_spans(batch.size, reason: 'export-failure')
-            end
+          def report_success(batch_size)
+            @metrics_reporter.add_to_counter('otel.bsp.export.success')
+            @metrics_reporter.add_to_counter('otel.bsp.exported_spans', increment: batch_size)
+          end
+
+          def report_error(exception, batch_size)
+            # "Unable to export #{batch_size} spans"
+            OpenTelemetry.handle_error(exception: exception.class.to_s, message: exception.message)
+            @metrics_reporter.add_to_counter('otel.bsp.export.failure')
+            report_dropped_spans(batch_size, reason: 'export-failure')
           end
 
           def report_dropped_spans(count, reason:)
